@@ -1,6 +1,6 @@
-# 美食红黑榜 · 系统开发设计文档
+# 美食红黑榜 · 河南 · 系统开发设计文档
 
-> **文档版本**：v3.8.0 (Gesture-Driven Card Collapse & Smart Pin Above Card Centering)  
+> **文档版本**：v3.8.1 (Brand Title Suffix .Henan & Multi-Platform Sync)  
 > **最后更新**：2026-09-11  
 > **设计标准**：遵循 IEEE 1016 软件设计描述规范与微信小程序原生设计规范  
 > **适用平台**：Web (桌面宽屏适配) / 移动端 H5 (单卡居中露出) / 微信小程序原生外壳 (Web-View 混合架构)
