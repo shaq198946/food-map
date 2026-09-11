@@ -1,0 +1,570 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+  <meta http-equiv="Pragma" content="no-cache" />
+  <meta http-equiv="Expires" content="0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>美食红黑榜</title>
+  <link rel="icon" type="image/png" href="./assets/icon_square.png" />
+  <link rel="apple-touch-icon" href="./assets/icon_square.png" />
+  
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Leaflet CSS & JS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <!-- Phosphor Icons -->
+  <script src="https://unpkg.com/@phosphor-icons/web"></script>
+
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    .no-scrollbar::-webkit-scrollbar { display: none; }
+    .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+    /* Yelp 经典数字 Pin (红榜：未激活红底白字；被选中时背景为白色，数字变为红色) */
+    .yelp-num-pin {
+      width: 28px;
+      height: 28px;
+      background: #d32323; /* Yelp 核心深红 */
+      color: #ffffff;
+      border: 2px solid #ffffff;
+      border-radius: 50%;
+      box-shadow: 0 3px 8px rgba(0, 0, 0, 0.35);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 13px;
+      font-weight: 800;
+      cursor: pointer;
+      transition: all 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+    }
+    .yelp-num-pin:hover, .yelp-num-pin.active {
+      width: 36px;
+      height: 36px;
+      background: #ffffff !important; /* 🌟 激活时背景是白色 🌟 */
+      color: #d32323 !important;      /* 🌟 数字变成红色 🌟 */
+      border: 3px solid #d32323 !important;
+      box-shadow: 0 6px 20px rgba(211, 35, 35, 0.45);
+      transform: scale(1.15) translateY(-5px);
+      z-index: 9999 !important;
+      font-size: 16px;
+      font-weight: 900;
+    }
+
+    /* 顶部博主筛选胶囊 (红榜为红色，黑榜为黑色，保持颜色体系严密一致) */
+    .blogger-btn {
+      transition: all 0.15s ease-in-out;
+    }
+    .blogger-btn.active.is-red {
+      background: #d32323 !important;
+      color: #ffffff !important;
+      border-color: #d32323 !important;
+      box-shadow: 0 3px 10px rgba(211, 35, 35, 0.3);
+    }
+    .blogger-btn.active.is-black {
+      background: #111827 !important;
+      color: #ffffff !important;
+      border-color: #111827 !important;
+      box-shadow: 0 3px 10px rgba(17, 24, 39, 0.3);
+    }
+    .blogger-btn.active .count-badge {
+      background: rgba(255, 255, 255, 0.25) !important;
+      color: #ffffff !important;
+    }
+
+    /* 底部 Yelp 横滑卡片轨道 (居中吸附 + 左右卡片实底清晰露出，绝无半透明) */
+    .bottom-slider-track {
+      scroll-snap-type: x mandatory;
+      -webkit-overflow-scrolling: touch;
+      scroll-padding: 0 12vw;
+    }
+    .bottom-slider-item {
+      scroll-snap-align: center;
+      flex-shrink: 0;
+      opacity: 1 !important;
+      background-color: #ffffff !important;
+    }
+
+    /* 黑榜专属：黑色图钉 Pin (黑榜：未激活黑底白字；被选中时底部/背景为白色，数字变为黑色) */
+    .yelp-black-pin {
+      width: 28px;
+      height: 28px;
+      background: #111827; /* 纯黑底色 */
+      color: #ffffff;
+      border: 2px solid #ffffff;
+      border-radius: 50%;
+      box-shadow: 0 3px 8px rgba(0, 0, 0, 0.45);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 13px;
+      font-weight: 800;
+      cursor: pointer;
+      transition: all 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+    }
+    .yelp-black-pin:hover, .yelp-black-pin.active {
+      width: 36px;
+      height: 36px;
+      background: #ffffff !important; /* 🌟 激活时底部/背景为白色 🌟 */
+      color: #111827 !important;      /* 🌟 数字变为黑色 🌟 */
+      border: 3px solid #111827 !important;
+      box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5);
+      transform: scale(1.15) translateY(-5px);
+      z-index: 9999 !important;
+      font-size: 16px;
+      font-weight: 900;
+    }
+
+    /* 菜品单行丝滑横向滚动与拖拽 */
+    .dishes-scroll-container {
+      -webkit-overflow-scrolling: touch;
+      cursor: grab;
+      user-select: none;
+      touch-action: pan-x;
+    }
+    .dishes-scroll-container:active {
+      cursor: grabbing;
+    }
+    .dishes-scroll-hint {
+      transition: opacity 0.2s ease-in-out;
+    }
+
+    /* 🌟 我的收藏专属：金色星标图钉 Pin 🌟 */
+    .yelp-fav-pin {
+      width: 28px;
+      height: 28px;
+      background: #f59e0b; /* 琥珀金底色 */
+      color: #ffffff;
+      border: 2px solid #ffffff;
+      border-radius: 50%;
+      box-shadow: 0 3px 8px rgba(245, 158, 11, 0.45);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 11px;
+      font-weight: 800;
+      cursor: pointer;
+      transition: all 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+    }
+    .yelp-fav-pin:hover, .yelp-fav-pin.active {
+      width: 36px;
+      height: 36px;
+      background: #d97706 !important;
+      color: #ffffff !important;
+      border: 3px solid #ffffff !important;
+      box-shadow: 0 6px 20px rgba(217, 119, 6, 0.6) !important;
+      transform: scale(1.15) translateY(-5px);
+      z-index: 9999 !important;
+      font-size: 14px;
+      font-weight: 900;
+    }
+
+    /* 底部 Yelp 横滑卡片滑轨 (移动端单卡居中露出，PC端大视野多卡平铺) */
+    .bottom-slider-track {
+      display: flex;
+      overflow-x: auto;
+      scroll-snap-type: x mandatory;
+      -webkit-overflow-scrolling: touch;
+      padding-top: 10px;
+      padding-bottom: 12px;
+      scroll-padding: 0 12vw;
+    }
+    @media (min-width: 768px) {
+      .bottom-slider-track {
+        scroll-padding: 0 48px;
+      }
+    }
+    .bottom-slider-item {
+      scroll-snap-align: center;
+      transition: transform 0.28s cubic-bezier(0.34, 1.56, 0.64, 1), border-color 0.2s ease, box-shadow 0.28s ease, ring 0.2s ease;
+      opacity: 1 !important;
+      background-color: #ffffff !important;
+      transform-origin: center bottom;
+      will-change: transform, box-shadow;
+    }
+
+    .safe-padding-bottom {
+      padding-bottom: max(12px, env(safe-area-inset-bottom));
+    }
+  </style>
+</head>
+<body class="bg-[#f7f7f8] text-gray-900 antialiased h-screen flex flex-col overflow-hidden">
+
+  <!-- 🌟 启动加载屏 (Splash Screen): 中间 Logo + 外圈圆形加载动画 + 美食红黑榜文字 🌟 -->
+  <div id="splashScreen" class="fixed inset-0 z-[999999] bg-white flex flex-col items-center justify-center select-none transition-opacity duration-300">
+    <div class="relative flex items-center justify-center w-24 h-24">
+      <!-- 外圈圆形加载旋转动画 -->
+      <div class="absolute inset-0 rounded-full border-[3px] border-gray-100 border-t-[#d32323] border-r-[#d32323]/80 animate-spin" style="animation-duration: 0.85s;"></div>
+      <!-- 中间 Logo 图标 -->
+      <img src="./assets/icon_square.png" alt="美食红黑榜 Logo" class="w-14 h-14 rounded-2xl object-contain shadow-xs select-none" />
+    </div>
+    <!-- 品牌名称 -->
+    <div class="mt-5 text-base md:text-lg font-bold text-gray-900 tracking-wider">美食红黑榜</div>
+  </div>
+
+  <!-- 1. 顶部导航栏 (标准小程序 44px 导航栏高度规范，标题、搜索框与右侧胶囊均为 32px 等高) -->
+  <header class="bg-white border-b border-gray-200 px-3 md:px-6 h-[44px] flex items-center justify-between z-30 flex-shrink-0 space-x-2 md:space-x-3">
+    <!-- 左侧：Logo 与标题与城市下拉选择与红黑榜切换 (严格 32px 等高居中) -->
+    <div class="flex items-center space-x-1.5 md:space-x-2 flex-shrink-0 h-8">
+      <img src="./assets/icon_square.png" alt="美食红黑榜 Logo" class="w-7 h-7 md:w-8 md:h-8 rounded-lg object-contain shadow-2xs select-none flex-shrink-0" />
+      <div class="flex items-center space-x-1 sm:space-x-1.5">
+        <span class="font-bold text-xs sm:text-sm md:text-base text-gray-900 tracking-tight hidden xs:inline-block">美食红黑榜</span>
+        
+        <!-- 城市下拉选择器 -->
+        <div class="relative inline-block" id="cityDropdownContainer">
+          <button 
+            id="citySelectorBtn" 
+            onclick="toggleCityDropdown(event)" 
+            class="flex items-center space-x-1 px-1.5 sm:px-2 py-0.5 text-[11px] md:text-xs font-bold text-gray-800 bg-gray-100 hover:bg-gray-200 rounded-full border border-gray-200 transition select-none cursor-pointer"
+          >
+            <i class="ph-bold ph-map-pin text-[#d32323]"></i>
+            <span id="currentCityLabel">洛阳</span>
+            <i class="ph-bold ph-caret-down text-[10px] text-gray-500 transition-transform duration-200" id="cityCaretIcon"></i>
+          </button>
+
+          <!-- 城市下拉菜单 -->
+          <div 
+            id="cityDropdownMenu" 
+            class="hidden absolute left-0 top-full mt-1.5 w-28 bg-white rounded-xl shadow-xl border border-gray-100 py-1 z-[99999] text-xs font-semibold select-none"
+          >
+            <button 
+              onclick="switchCity('luoyang', event)" 
+              class="w-full text-left px-3 py-2 hover:bg-red-50 hover:text-[#d32323] flex items-center justify-between transition cursor-pointer"
+            >
+              <span>洛阳美食</span>
+              <i id="check-luoyang" class="ph-bold ph-check text-red-600 font-bold"></i>
+            </button>
+            <button 
+              onclick="switchCity('zhengzhou', event)" 
+              class="w-full text-left px-3 py-2 hover:bg-red-50 hover:text-[#d32323] flex items-center justify-between transition cursor-pointer"
+            >
+              <span>郑州美食</span>
+              <i id="check-zhengzhou" class="ph-bold ph-check text-red-600 font-bold hidden"></i>
+            </button>
+          </div>
+        </div>
+
+        <!-- 🌟 红黑榜快速切换药丸 (红榜推荐 vs 避雷黑榜) 🌟 -->
+        <div class="flex items-center bg-gray-100 p-0.5 rounded-full border border-gray-200 select-none ml-0.5 sm:ml-1">
+          <button id="btnRedList" onclick="switchRankList('red')" class="px-2 py-0.5 rounded-full text-[11px] font-extrabold transition cursor-pointer bg-[#d32323] text-white shadow-2xs flex items-center space-x-0.5">
+            <span>红榜</span>
+          </button>
+          <button id="btnBlackList" onclick="switchRankList('black')" class="px-2 py-0.5 rounded-full text-[11px] font-bold text-gray-500 hover:text-black transition cursor-pointer flex items-center space-x-0.5">
+            <span>黑榜</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 中间：大圆角搜索框 (严格 32px 高度，与官方胶囊完全一致) -->
+    <div class="relative flex-1 max-w-lg mx-1 sm:mx-3 h-8">
+      <i class="ph ph-magnifying-glass absolute left-3 top-2 text-gray-400 text-sm"></i>
+      <input 
+        type="text" 
+        id="searchInput"
+        placeholder="搜索牛肉汤、小街锅贴、水席..." 
+        class="w-full h-8 pl-8 pr-7 bg-gray-100 focus:bg-white border border-transparent focus:border-gray-300 rounded-full text-xs sm:text-sm text-gray-800 focus:outline-none transition shadow-xs flex items-center"
+        oninput="handleSearch(this.value)"
+      />
+      <button id="clearSearchBtn" onclick="clearSearch()" class="hidden absolute right-2.5 top-1.5 text-gray-400 hover:text-gray-600">
+        <i class="ph ph-x-circle text-base"></i>
+      </button>
+    </div>
+  </header>
+
+  <!-- 2. UP 主快速筛选栏 (点击高亮黑底白字，显眼切换) -->
+  <nav class="bg-white border-b border-gray-200 px-3 md:px-6 py-2 z-20 flex-shrink-0 shadow-xs">
+    <div class="flex items-center space-x-2 overflow-x-auto no-scrollbar" id="bloggerCardsContainer">
+      <!-- JS 动态注入 -->
+    </div>
+  </nav>
+
+  <!-- 3. 主布局区域 -->
+  <div class="flex-1 flex flex-row overflow-hidden relative">
+
+    <!-- 侧边栏列表 (桌面端可切换折叠，手机端隐藏直接使用全屏地图+下方横滑卡片) -->
+    <aside id="sidebar" class="hidden md:flex w-[360px] bg-white border-r border-gray-200 flex-col flex-shrink-0 z-20 transition-all duration-200">
+      
+      <!-- 二级品类过滤 (由 JS 针对城市动态渲染分类与数量) -->
+      <div id="categoryContainer" class="px-3 py-2 border-b border-gray-100 flex items-center space-x-1 overflow-x-auto no-scrollbar text-xs">
+        <!-- JS 动态注入 -->
+      </div>
+
+      <!-- 侧边栏卡片瀑布流 -->
+      <div id="spotsList" class="flex-1 overflow-y-auto divide-y divide-gray-100 p-2 space-y-1">
+        <!-- JS 动态渲染 -->
+      </div>
+    </aside>
+
+    <!-- 地图核心工作区 (全屏展开，下方浮动 Yelp 样式横滑卡片) -->
+    <main class="flex-1 relative h-full w-full">
+      <div id="map" class="w-full h-full bg-[#f4f3f0]"></div>
+
+
+
+      <!-- 🌟 地图正下方：Yelp 经典横向滑动卡片 (PC端大视野多卡并排，移动端黄金单卡居中) 🌟 -->
+      <div id="bottomCardSlider" class="absolute bottom-2 md:bottom-4 left-0 right-0 z-[400] px-0 sm:px-3 md:px-6 safe-padding-bottom pointer-events-none flex justify-center items-center">
+        
+        <!-- 左右快速翻页指示按钮 (桌面端显示，悬浮微阴影) -->
+        <button onclick="slideCards(-1)" class="hidden md:flex pointer-events-auto flex-shrink-0 mr-2 lg:mr-3 w-10 h-10 rounded-full bg-white/95 hover:bg-white shadow-lg hover:shadow-xl border border-gray-200/90 items-center justify-center text-gray-700 hover:text-black hover:scale-110 active:scale-95 transition z-30 cursor-pointer" title="上一组餐馆">
+          <i class="ph-bold ph-caret-left text-lg"></i>
+        </button>
+
+        <!-- 卡片横向滑动滑轨 (PC端大视野支持 3-4 张卡片平铺浏览，移动端黄金居中) -->
+        <div 
+          id="bottomCardsTrack" 
+          class="flex items-center space-x-3.5 md:space-x-5 overflow-x-auto no-scrollbar bottom-slider-track py-3 px-4 sm:px-6 md:px-5 pointer-events-auto w-full md:max-w-4xl lg:max-w-5xl xl:max-w-6xl 2xl:max-w-7xl"
+        >
+          <!-- JS 动态注入 Yelp 风格横滑卡片 -->
+        </div>
+
+        <button onclick="slideCards(1)" class="hidden md:flex pointer-events-auto flex-shrink-0 ml-2 lg:ml-3 w-10 h-10 rounded-full bg-white/95 hover:bg-white shadow-lg hover:shadow-xl border border-gray-200/90 items-center justify-center text-gray-700 hover:text-black hover:scale-110 active:scale-95 transition z-30 cursor-pointer" title="下一组餐馆">
+          <i class="ph-bold ph-caret-right text-lg"></i>
+        </button>
+      </div>
+    </main>
+  </div>
+
+
+  <!-- 模态框：地图到店导航 (高德、腾讯、百度三选一，z-[9999] 浮于地图图层之上) -->
+  <div id="navModal" class="fixed inset-0 z-[9999] bg-black/50 backdrop-blur-xs hidden flex items-end sm:items-center justify-center p-0 sm:p-4">
+    <div class="bg-white rounded-t-2xl sm:rounded-2xl max-w-sm w-full p-4 sm:p-5 shadow-2xl relative text-left">
+      <div class="flex items-center justify-between pb-3 border-b border-gray-100">
+        <div class="flex items-center space-x-2.5 min-w-0 pr-4">
+          <div class="w-8 h-8 rounded-full bg-rose-50 text-[#d32323] flex items-center justify-center flex-shrink-0">
+            <i class="ph-bold ph-navigation-arrow text-base"></i>
+          </div>
+          <div class="min-w-0">
+            <h3 id="navSpotName" class="text-xs sm:text-sm font-bold text-gray-900 truncate">导航至店铺</h3>
+            <p id="navSpotDistrict" class="text-[11px] text-gray-400 mt-0.5 truncate"></p>
+          </div>
+        </div>
+        <button onclick="closeNavModal()" class="text-gray-400 hover:text-gray-600 p-1 flex-shrink-0 cursor-pointer">
+          <i class="ph ph-x text-lg"></i>
+        </button>
+      </div>
+
+      <!-- 三选一导航选项 -->
+      <div class="py-3 space-y-2">
+        <!-- 1. 高德地图 -->
+        <a id="navAmapLink" target="_blank" onclick="closeNavModal()" class="flex items-center justify-between p-2.5 sm:p-3 rounded-xl bg-gray-50 hover:bg-blue-50/70 border border-gray-100 hover:border-blue-200 transition group cursor-pointer">
+          <div class="flex items-center space-x-3">
+            <div class="w-8 h-8 rounded-lg bg-[#2475fc] text-white flex items-center justify-center font-bold text-xs shadow-xs">高</div>
+            <div>
+              <div class="text-xs font-semibold text-gray-900 group-hover:text-blue-600">高德地图</div>
+              <div class="text-[10px] text-gray-400">精准定位 · 路线规划</div>
+            </div>
+          </div>
+          <i class="ph ph-arrow-up-right text-gray-400 group-hover:text-blue-600 text-sm"></i>
+        </a>
+
+        <!-- 2. 腾讯地图 -->
+        <a id="navTencentLink" target="_blank" onclick="closeNavModal()" class="flex items-center justify-between p-2.5 sm:p-3 rounded-xl bg-gray-50 hover:bg-emerald-50/70 border border-gray-100 hover:border-emerald-200 transition group cursor-pointer">
+          <div class="flex items-center space-x-3">
+            <div class="w-8 h-8 rounded-lg bg-[#14b8a6] text-white flex items-center justify-center font-bold text-xs shadow-xs">腾</div>
+            <div>
+              <div class="text-xs font-semibold text-gray-900 group-hover:text-emerald-600">腾讯地图</div>
+              <div class="text-[10px] text-gray-400">微信生态支持最畅</div>
+            </div>
+          </div>
+          <i class="ph ph-arrow-up-right text-gray-400 group-hover:text-emerald-600 text-sm"></i>
+        </a>
+
+        <!-- 3. 百度地图 -->
+        <a id="navBaiduLink" target="_blank" onclick="closeNavModal()" class="flex items-center justify-between p-2.5 sm:p-3 rounded-xl bg-gray-50 hover:bg-red-50/70 border border-gray-100 hover:border-red-200 transition group cursor-pointer">
+          <div class="flex items-center space-x-3">
+            <div class="w-8 h-8 rounded-lg bg-[#ea3323] text-white flex items-center justify-center font-bold text-xs shadow-xs">百</div>
+            <div>
+              <div class="text-xs font-semibold text-gray-900 group-hover:text-red-600">百度地图</div>
+              <div class="text-[10px] text-gray-400">街景全景 · 步行导航</div>
+            </div>
+          </div>
+          <i class="ph ph-arrow-up-right text-gray-400 group-hover:text-red-600 text-sm"></i>
+        </a>
+      </div>
+
+      <button onclick="closeNavModal()" class="w-full py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl text-xs font-medium transition cursor-pointer">
+        取消
+      </button>
+    </div>
+  </div>
+
+  <!-- 模态框 2：录入探店点位 -->
+  <div id="addModal" class="fixed inset-0 z-[9999] bg-black/50 backdrop-blur-sm hidden flex items-center justify-center p-4">
+    <div class="bg-white rounded-2xl max-w-sm w-full p-5 shadow-2xl relative max-h-[90vh] overflow-y-auto">
+      <button onclick="closeAddModal()" class="absolute top-4 right-4 text-gray-400 hover:text-gray-600">
+        <i class="ph ph-x text-lg"></i>
+      </button>
+
+      <h3 class="text-sm font-semibold text-gray-900 mb-3">录入新探店点位</h3>
+
+      <form id="addSpotForm" onsubmit="handleAddNewSpot(event)" class="space-y-2 text-xs">
+        <div>
+          <label class="block text-gray-600 mb-1">店铺名称</label>
+          <input type="text" id="newSpotName" required placeholder="如：老白家牛肉汤" class="w-full px-2.5 py-1.5 border border-gray-200 rounded-lg outline-none">
+        </div>
+
+        <div class="grid grid-cols-2 gap-2">
+          <div>
+            <label class="block text-gray-600 mb-1">探店博主</label>
+            <select id="newSpotBloggerId" class="w-full px-2 py-1.5 border border-gray-200 rounded-lg outline-none bg-white">
+              <option value="suipo">特厨隋坡</option>
+              <option value="wulala">特别乌拉拉</option>
+              <option value="axing">阿星探店</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-gray-600 mb-1">分类</label>
+            <select id="newSpotCategory" class="w-full px-2 py-1.5 border border-gray-200 rounded-lg outline-none bg-white">
+              <option value="soup">牛肉/羊汤</option>
+              <option value="staple">锅贴/面食</option>
+              <option value="banquet">洛阳水席</option>
+              <option value="street">夜市小吃</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-2 gap-2">
+          <div>
+            <label class="block text-gray-600 mb-1">区域</label>
+            <input type="text" id="newSpotDistrict" required placeholder="如：老城区" class="w-full px-2.5 py-1.5 border border-gray-200 rounded-lg outline-none">
+          </div>
+          <div>
+            <label class="block text-gray-600 mb-1">价格</label>
+            <input type="text" id="newSpotPrice" placeholder="如：￥20" class="w-full px-2.5 py-1.5 border border-gray-200 rounded-lg outline-none">
+          </div>
+        </div>
+
+        <div>
+          <label class="block text-gray-600 mb-1">短评金句</label>
+          <input type="text" id="newSpotQuote" required placeholder="如：老汤清醇无添加，焦馍脆香" class="w-full px-2.5 py-1.5 border border-gray-200 rounded-lg outline-none">
+        </div>
+
+        <div>
+          <label class="block text-gray-600 mb-1">招牌菜品</label>
+          <input type="text" id="newSpotTopDish" placeholder="如：原汤牛肉汤 · 现炸焦馍" class="w-full px-2.5 py-1.5 border border-gray-200 rounded-lg outline-none">
+        </div>
+
+        <div>
+          <label class="block text-gray-600 mb-1">抖音视频链接</label>
+          <input type="text" id="newSpotVideoUrl" placeholder="https://..." class="w-full px-2.5 py-1.5 border border-gray-200 rounded-lg outline-none">
+        </div>
+
+        <button type="submit" class="w-full mt-2 py-2 bg-gray-900 hover:bg-black text-white rounded-lg font-medium transition">
+          添加至地图
+        </button>
+      </form>
+    </div>
+  </div>
+
+  <!-- 模态框 3：餐馆信息与视频纠错反馈对话框 (弹出文本对话框) -->
+  <div id="feedbackModal" class="fixed inset-0 z-[10000] bg-black/60 backdrop-blur-xs hidden flex items-center justify-center p-4">
+    <div class="bg-white rounded-2xl max-w-md w-full p-5 sm:p-6 shadow-2xl relative max-h-[92vh] overflow-y-auto transform transition-all duration-200">
+      <button onclick="closeFeedbackModal()" class="absolute top-4 right-4 text-gray-400 hover:text-gray-600 p-1.5 rounded-full hover:bg-gray-100 transition cursor-pointer">
+        <i class="ph ph-x text-lg"></i>
+      </button>
+
+      <div class="flex items-center space-x-2.5 mb-2">
+        <div class="w-8 h-8 rounded-full bg-red-50 text-[#d32323] flex items-center justify-center flex-shrink-0">
+          <i class="ph-bold ph-chat-teardrop-dots text-lg"></i>
+        </div>
+        <div>
+          <h3 class="text-sm sm:text-base font-bold text-gray-900 leading-tight">餐馆信息与视频纠错反馈</h3>
+          <p class="text-[11px] text-gray-500 mt-0.5" id="feedbackSpotNameDisplay">正在反馈：加载中...</p>
+        </div>
+      </div>
+
+      <form id="feedbackForm" onsubmit="handleFeedbackSubmit(event)" class="mt-3.5 space-y-3.5 text-xs text-left">
+        <input type="hidden" id="feedbackSpotId" value="">
+        <input type="hidden" id="feedbackSpotName" value="">
+        <input type="hidden" id="feedbackType" value="视频链接有误">
+
+        <!-- 1. 快捷选择反馈类型 -->
+        <div>
+          <label class="block text-gray-700 font-semibold mb-1.5 text-[11px]">请选择问题类型</label>
+          <div class="grid grid-cols-2 gap-1.5 text-[11px]">
+            <button type="button" onclick="setFeedbackType(this, '视频链接有误')" class="fb-type-btn active px-2.5 py-1.5 rounded-lg border text-left flex items-center space-x-1.5 transition cursor-pointer bg-red-50 text-[#d32323] border-red-200 font-bold">
+              <span>🎬 视频链接不符/失效</span>
+            </button>
+            <button type="button" onclick="setFeedbackType(this, '详细地址不准')" class="fb-type-btn px-2.5 py-1.5 rounded-lg border border-gray-200 text-gray-700 text-left flex items-center space-x-1.5 transition cursor-pointer hover:bg-gray-50">
+              <span>📍 详细地址不准确</span>
+            </button>
+            <button type="button" onclick="setFeedbackType(this, '营业时间或电话有变')" class="fb-type-btn px-2.5 py-1.5 rounded-lg border border-gray-200 text-gray-700 text-left flex items-center space-x-1.5 transition cursor-pointer hover:bg-gray-50">
+              <span>🕒 营业时间/电话有变</span>
+            </button>
+            <button type="button" onclick="setFeedbackType(this, 'UP主或评语不对应')" class="fb-type-btn px-2.5 py-1.5 rounded-lg border border-gray-200 text-gray-700 text-left flex items-center space-x-1.5 transition cursor-pointer hover:bg-gray-50">
+              <span>👤 UP主/评语不对应</span>
+            </button>
+            <button type="button" onclick="setFeedbackType(this, '菜品与价格变动')" class="fb-type-btn px-2.5 py-1.5 rounded-lg border border-gray-200 text-gray-700 text-left flex items-center space-x-1.5 transition cursor-pointer hover:bg-gray-50">
+              <span>🍽️ 菜品价格变动</span>
+            </button>
+            <button type="button" onclick="setFeedbackType(this, '其他建议')" class="fb-type-btn px-2.5 py-1.5 rounded-lg border border-gray-200 text-gray-700 text-left flex items-center space-x-1.5 transition cursor-pointer hover:bg-gray-50">
+              <span>💡 其他建议</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- 2. 详细说明输入框 (Textarea) -->
+        <div>
+          <label class="block text-gray-700 font-semibold mb-1 text-[11px]">
+            详细反馈说明 <span class="text-red-500">*</span>
+          </label>
+          <textarea 
+            id="feedbackContent" 
+            required 
+            rows="3" 
+            placeholder="请详细描述有误的内容，或贴入正确的抖音单视频链接、准确门牌号等，方便后台管理员核实更新..." 
+            class="w-full px-3 py-2 border border-gray-200 rounded-xl outline-none focus:border-[#d32323] focus:ring-1 focus:ring-[#d32323] text-xs transition resize-none bg-gray-50/50"
+          ></textarea>
+        </div>
+
+        <!-- 3. 联系方式 (选填) -->
+        <div>
+          <label class="block text-gray-500 mb-1 text-[10px]">
+            您的联系方式 (选填，方便核实后致谢)
+          </label>
+          <input 
+            type="text" 
+            id="feedbackContact" 
+            placeholder="微信号 / 手机号 / 邮箱" 
+            class="w-full px-3 py-1.5 border border-gray-200 rounded-xl outline-none focus:border-[#d32323] text-xs bg-gray-50/50"
+          >
+        </div>
+
+        <!-- 4. 底部操作按钮 -->
+        <div class="flex items-center space-x-2 pt-2 border-t border-gray-100">
+          <button 
+            type="button" 
+            onclick="closeFeedbackModal()" 
+            class="flex-1 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl text-xs font-semibold transition cursor-pointer"
+          >
+            取消
+          </button>
+          <button 
+            type="submit" 
+            class="flex-1 py-2 bg-[#d32323] hover:bg-red-700 text-white rounded-xl text-xs font-semibold shadow-md transition cursor-pointer flex items-center justify-center space-x-1"
+          >
+            <i class="ph-bold ph-paper-plane-tilt"></i>
+            <span>提交后台反馈</span>
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- 全局反馈成功 Toast 提示 -->
+  <div id="feedbackToast" class="fixed top-5 left-1/2 -translate-x-1/2 z-[99999] bg-gray-900/90 text-white text-xs font-semibold px-4 py-2.5 rounded-full shadow-2xl backdrop-blur-md flex items-center space-x-2 transition-all duration-300 opacity-0 pointer-events-none transform -translate-y-2">
+    <i class="ph-bold ph-check-circle text-green-400 text-sm"></i>
+    <span id="feedbackToastMsg">反馈提交成功！感谢您的协助，我们将尽快核验修正。</span>
+  </div>
+
+  <script src="data.js?v=20260911_v302_planA"></script>
+  <script src="app.js?v=20260911_v305_spacing"></script>
+</body>
+</html>

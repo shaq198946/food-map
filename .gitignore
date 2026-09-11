@@ -1,0 +1,33 @@
+# 临时抓取脚本与调试测试文件
+*.py
+*.bat
+scratch/
+test_*.py
+take_screenshot.py
+run_*.py
+get_video.py
+open_sandbox.py
+parse_html.py
+
+# 历史中间测试数据与页面 Dump
+page_dump.html
+suipo_user.html
+*.json
+*.txt
+!data.js
+
+# 历史截屏文件（已归档入 PROCESS.md 记录）
+*.png
+!assets/*.png
+
+# 备份文件与系统临时缓存
+*.bak
+.DS_Store
+Thumbs.db
+node_modules/.chrome_profile/
+.freebuff/
+*.bak*
+first_card_complete.html
+
+.chrome_profile/
+.chrome_profile
