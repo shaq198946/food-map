@@ -1,6 +1,6 @@
 # 美食红黑榜 · 系统开发设计文档
 
-> **文档版本**：v3.6.0 (Badge-Free Covers & Responsive Action-Bar Spacing)  
+> **文档版本**：v3.8.0 (Gesture-Driven Card Collapse & Smart Pin Above Card Centering)  
 > **最后更新**：2026-09-11  
 > **设计标准**：遵循 IEEE 1016 软件设计描述规范与微信小程序原生设计规范  
 > **适用平台**：Web (桌面宽屏适配) / 移动端 H5 (单卡居中露出) / 微信小程序原生外壳 (Web-View 混合架构)
@@ -210,6 +210,17 @@ const baiduUrl = `https://api.map.baidu.com/marker?location=${bd_lat},${bd_lng}&
   - 未选中卡片：维持 `scale-100`、浅灰边框 `border-gray-200/90` 与普通阴影，主次层次分明。
 - **智能翻页胶囊联动**：
   - PC 端左右翻页按钮升级为微阴影悬浮圆环，点击不仅滑动，而且**直接联动选中上一家/下一家餐馆**，同步驱动地图 Pin 高亮与平滑飞渡定位。
+
+### 4.10 手势沉浸折叠与智能视口避让悬停架构 (Gesture Collapse & Pin Centering)
+- **4.10.1 智能卡片避让视口计算（`fitBoundsWithCardPadding`）**：
+  - **开阔区自适应**：地图加载或切换分类/博主/搜索时，自动根据底部卡片实际高度（移动端 280px / 桌面端 240px）计算 `paddingBottomRight`；
+  - **全量无遮挡露出**：所有筛选出的餐馆 Marker 完整呈现在卡片上方的开阔视野中（图1），绝无被卡片遮盖的问题。
+- **4.10.2 Pin 在卡片正上方居中悬停（`flyToSpotAboveCard`）**：
+  - **黄金观察点数学计算**：点击地图 Pin 或横滑卡片时，系统通过 `map.project` 与视口剩余高度动态计算，将目标 Marker 的 Y 轴精准定位在卡片正上方 35px~50px 处的黄金视野（图2）；
+  - **多端与侧边栏补偿**：自动兼容移动端全屏与 PC 端左侧边栏（360px）的水平居中偏移。
+- **4.10.3 手势拖拽/缩放沉浸式折叠（`collapseCards` / `expandCards`）**：
+  - **地图手势触发下移**：监听 Leaflet 的 `dragstart` 与 `zoomstart` 事件，卡片平滑下移（`transform: translateY(calc(100% - 66px))`），只露出 66px 的卡片头部与封面，最大化扩展地图浏览视野（图3）；
+  - **多路径平滑恢复**：用户点击露出的卡片头部、滑动卡片、点击地图 Marker、或切换顶部任何筛选胶囊时，卡片立即优雅弹起恢复完整原样。
 
 ---
 

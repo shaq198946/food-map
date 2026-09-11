@@ -293,8 +293,31 @@ timeline
 
 ### 6.22 Git 本地工程化标准化与全量基线归档 Commit
 - **工程重塑背景**：用户询问版本管理方案。经评估，微信开发者工具内置的版本管理仅作用于外壳目录（`miniprogram-1`），无法保护主项目的 83 家探店数据与核心交互代码。因此在桌面主项目建立专业级 Git 版本控制。
-- **落地成果**：
-  1. **配置标准 `.gitignore`**：过滤抓取沙箱、历史测试截图（数十张 png）、临时 Python 脚本与缓存，保留纯净代码资产；
-  2. **创建精美 `README.md`**：规范项目特性介绍、快速启动指令与文档导航；
-  3. **全量基线 Commit**：完成首次基线归档 `[main (root-commit) f3f64da]`，将 83 家数据、开屏加载、收藏系统与全量设计文档永久固化保护；
-  4. **对齐 GitHub 云端准备**：检测到用户本机已绑定 GitHub 账号（`shaq198946`），支持一键远程推送与 GitHub Pages 部署。
+### 6.23 GitHub Pages 全球公网生产部署上线与真机调试 0 白屏打通
+- **背景与痛点**：微信小程序真机沙箱对 HTTPS 公网域名有强制要求，内网 IP（`192.168.x.x`）在真机扫码时会触发安全拦截导致页面白屏。
+- **实施方案**：
+  1. 将主项目推送至 GitHub 远程公开仓库 `https://github.com/shaq198946/food-map.git`；
+  2. 启用 GitHub Pages 免费自动化构建与 CDN 分发，生成合法全球生产 HTTPS 地址：`https://shaq198946.github.io/food-map/`；
+  3. 将小程序容器 `miniprogram-1/pages/index/index.wxml` 更新为该生产 HTTPS 网址，实现微信手机扫码秒级直达，彻底解决真机白屏问题。
+
+### 6.24 手势沉浸式卡片折叠与开阔区域视口避让悬停定位重构
+- **用户指令与核心痛点**：
+  1. **需求 1A（图1）**：地图初次加载或筛选时，当前筛选出的所有餐馆必须完整显示在卡片上方的未遮挡开阔区域；
+  2. **需求 1B（图2）**：点击某个地图图标或左右滑动切换卡片时，要保持地图图标正好在卡片上方居中悬停显示；
+  3. **需求 2（图3）**：用户在地图上拖动或缩放时，底部卡片自动下移收起（只露出一小截头部），释放最大化地图浏览视野；当用户再次点击卡片、拖动卡片、点击地图 Marker 或进行任何筛选时平滑恢复展开。
+- **技术突破与工程实现**：
+  1. **智能卡片避让视口算法 (`fitBoundsWithCardPadding`)**：
+     - 精确计算底部卡片遮挡高度（展开态约 280px，折叠态约 80px）与桌面端侧边栏宽度（360px）；
+     - 利用 Leaflet `map.fitBounds(bounds, { paddingTopLeft, paddingBottomRight })`，动态为底部留出充足 padding，确保所有 Marker 100% 呈现在可视开阔区域（图1）。
+  2. **Marker 在卡片正上方悬浮居中算法 (`flyToSpotAboveCard`)**：
+     - 利用 `map.project` 将地理经纬度转换为屏幕像素坐标；
+     - 通过公式 `offsetY = (mapSize.y / 2) - Math.max(70, availableHeight * 0.36)`，将 Marker 向上提至开阔视野中心，底边与卡片顶部保持 20px~35px 舒适空隙，彻底解决压边或被挡问题（图2）。
+  3. **手势驱动的卡片沉浸折叠机制 (`collapseCards` / `expandCards`)**：
+     - 在 Leaflet 引擎绑定 `dragstart` 和 `zoomstart` 事件，手势触发时自动给 `#bottomCardSlider` 注入 `.is-collapsed`；
+     - 通过 CSS `transform: translateY(calc(100% - 66px))` 与 `cubic-bezier(0.2, 0.9, 0.3, 1)` 动效，让卡片平滑下移只露出一小截头部（图3）；
+     - 在卡片轨道与指示把手（`#sliderExpandHandle`）、地图 Marker 点击、横滑卡片以及顶部各类筛选事件上全面接入 `expandCards()`，实现多路径丝滑展开复原。
+- **端到端自动化验收 (TC-16 & TC-17)**：
+  - 编写 Playwright 自动化测试脚本，在真实 375x667 移动端视口下执行全流程检验；
+  - 截图 `verify_1_initial_load.png`、`verify_2_marker_above_card.png`、`verify_3_card_collapsed.png`、`verify_4_card_restored.png` 全量验证通过，视觉与交互完美对齐用户设计预期！
+
+---

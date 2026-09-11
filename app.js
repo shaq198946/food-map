@@ -51,9 +51,10 @@ function switchRankList(type) {
   reloadCurrentSpotsData();
 
   // 刷新品类、博主与卡片
+  expandCards();
   renderCategoryPills();
   renderBloggerPills();
-  applyFilters();
+  applyFilters(true);
 }
 
 // 美食探店地图 · 洛阳 & 郑州多城市版 · Yelp 经典数字 Pin 与黑色图钉避雷黑榜
@@ -185,6 +186,44 @@ function dismissSplashScreen() {
 }
 
 
+// 底部卡片折叠沉浸态管理 (地图拖拽/缩放时下移收起，点击/拖动卡片或点击Pin时展开恢复)
+let isCardsCollapsed = false;
+
+function collapseCards() {
+  if (isCardsCollapsed) return;
+  isCardsCollapsed = true;
+  const slider = document.getElementById("bottomCardSlider");
+  if (slider) {
+    slider.classList.add("is-collapsed");
+  }
+}
+
+function expandCards() {
+  if (!isCardsCollapsed) return;
+  isCardsCollapsed = false;
+  const slider = document.getElementById("bottomCardSlider");
+  if (slider) {
+    slider.classList.remove("is-collapsed");
+  }
+}
+
+function setupCardInteractionListeners() {
+  const slider = document.getElementById("bottomCardSlider");
+  if (!slider || slider._hasCollapseListeners) return;
+  slider._hasCollapseListeners = true;
+
+  // 用户点击、触摸或鼠标按下底栏卡片时，立即恢复展开原样
+  slider.addEventListener("click", () => {
+    if (isCardsCollapsed) expandCards();
+  });
+  slider.addEventListener("touchstart", () => {
+    if (isCardsCollapsed) expandCards();
+  }, { passive: true });
+  slider.addEventListener("mousedown", () => {
+    if (isCardsCollapsed) expandCards();
+  });
+}
+
 // 1. 初始化地图
 function initMap() {
   const cityConf = CITIES[currentCity] || CITIES.luoyang;
@@ -206,6 +245,19 @@ function initMap() {
   }).addTo(map);
 
   markersLayer = L.layerGroup().addTo(map);
+
+  // 🌟 需求2：当用户缩放或拖动地图时，将卡片下移收起（只露出一小截），最大化显示地图面积 🌟
+  map.on("dragstart", () => {
+    collapseCards();
+  });
+
+  map.on("zoomstart", () => {
+    if (!map._isProgrammaticFly) {
+      collapseCards();
+    }
+  });
+
+  setupCardInteractionListeners();
 }
 
 // 2. 城市切换控制与下拉菜单
@@ -282,9 +334,10 @@ function switchCity(cityKey, event) {
   }
 
   // 刷新品类、博主胶囊与卡片列表
+  expandCards();
   renderCategoryPills();
   renderBloggerPills();
-  applyFilters();
+  applyFilters(true);
 }
 
 // 3. 动态渲染当前城市的二级品类胶囊
@@ -397,6 +450,7 @@ function renderBloggerPills() {
 
 // 5. 选择博主筛选 (支持收藏筛选与普通博主切换)
 function selectBlogger(bloggerId) {
+  expandCards();
   if (bloggerId === "favorites") {
     currentBloggerId = "favorites";
     currentCategory = "favorites";
@@ -408,16 +462,7 @@ function selectBlogger(bloggerId) {
   }
   renderBloggerPills();
   renderCategoryPills();
-  applyFilters();
-
-  if (filteredSpots.length > 0 && map) {
-    const latLngs = filteredSpots.map(s => [s.lat, s.lng]);
-    if (latLngs.length === 1) {
-      flyToSpotWithOffset(filteredSpots[0].lat, filteredSpots[0].lng, 15);
-    } else {
-      map.flyToBounds(L.latLngBounds(latLngs), { padding: [60, 60], maxZoom: 15, duration: 0.6 });
-    }
-  }
+  applyFilters(true);
 }
 
 // 6. 地图数字 Pin 渲染 (支持红榜数字、黑榜图钉与我的收藏金色星标)
@@ -827,8 +872,11 @@ function renderDesktopSpotsList(spots) {
   }).join('');
 }
 
-// 9. 选中某个店铺 (双向高亮 Pin 与卡片)
+// 9. 选中某个店铺 (双向高亮 Pin 与卡片，并保持 Pin 在卡片正上方居中)
 function selectSpot(spotId, shouldFly = false) {
+  // 点击或选中时若处于折叠状态，恢复展开
+  expandCards();
+
   activeSpotId = spotId;
   const spot = allSpots.find(s => s.id === spotId);
   if (!spot) return;
@@ -867,19 +915,68 @@ function selectSpot(spotId, shouldFly = false) {
   // 3. 刷新地图上的数字 Pin 状态
   renderMarkers(filteredSpots);
 
-  // 4. 平滑飞渡定位
+  // 4. 平滑飞渡定位：保持地图图标正好在卡片正上方显示 (图2效果)
   if (shouldFly && map) {
-    flyToSpotWithOffset(spot.lat, spot.lng, 15);
+    flyToSpotAboveCard(spot.lat, spot.lng, 15);
   }
 }
 
-function flyToSpotWithOffset(lat, lng, zoomLevel = 15) {
+// 🌟 需求 1B：保持选中的地图图标正好在卡片上方开阔视野居中显示（图2效果） 🌟
+function flyToSpotAboveCard(lat, lng, zoomLevel = 15) {
   if (!map) return;
-  const targetPoint = map.project([lat, lng], zoomLevel);
-  const offsetHeight = window.innerHeight * 0.15;
-  const newPoint = new L.Point(targetPoint.x, targetPoint.y + offsetHeight);
-  const newLatLng = map.unproject(newPoint, zoomLevel);
-  map.flyTo(newLatLng, zoomLevel, { duration: 0.6 });
+  const currentZoom = zoomLevel || map.getZoom() || 15;
+  const isDesktop = window.innerWidth >= 768;
+  const mapSize = map.getSize();
+  
+  // 底部卡片占据高度（展开态约 285px 移动端 / 250px 桌面端；折叠收起态约 70px）
+  const cardHeight = isCardsCollapsed ? 70 : (isDesktop ? 250 : 285);
+  
+  // 垂直方向：将 Marker 向上提，使其恰好居中悬停在卡片正上方的可视开阔区域（图2效果）
+  const availableHeight = mapSize.y - cardHeight;
+  const targetYInView = Math.max(70, availableHeight * 0.36);
+  const offsetY = (mapSize.y / 2) - targetYInView;
+  
+  // 水平方向：桌面端若有左侧边栏，偏向右侧开阔区
+  const sidebarWidth = (isDesktop && !isSidebarCollapsed) ? 360 : 0;
+  const offsetX = sidebarWidth / 2;
+
+  const targetPoint = map.project([lat, lng], currentZoom);
+  const newPoint = new L.Point(targetPoint.x - offsetX, targetPoint.y + offsetY);
+  const newLatLng = map.unproject(newPoint, currentZoom);
+
+  map._isProgrammaticFly = true;
+  map.flyTo(newLatLng, currentZoom, { duration: 0.55 });
+  setTimeout(() => { map._isProgrammaticFly = false; }, 650);
+}
+
+// 🌟 需求 1A：初次加载或筛选时，自适应视口将所有餐馆显示在卡片上方的未遮挡区域（图1效果） 🌟
+function fitBoundsWithCardPadding(spots) {
+  if (!spots || spots.length === 0 || !map) return;
+  if (spots.length === 1) {
+    flyToSpotAboveCard(spots[0].lat, spots[0].lng, 15);
+    return;
+  }
+  const latLngs = spots.map(s => [s.lat, s.lng]);
+  const bounds = L.latLngBounds(latLngs);
+  
+  const isDesktop = window.innerWidth >= 768;
+  const sidebarWidth = (isDesktop && !isSidebarCollapsed) ? 360 : 0;
+  
+  // 底部预留卡片高度与呼吸空隙，让出未遮挡开阔区域
+  const bottomPadding = isCardsCollapsed ? 80 : (isDesktop ? 240 : 280);
+  const topPadding = isDesktop ? 40 : 25;
+  const leftPadding = sidebarWidth + (isDesktop ? 30 : 20);
+  const rightPadding = isDesktop ? 30 : 20;
+
+  map._isProgrammaticFly = true;
+  map.fitBounds(bounds, {
+    paddingTopLeft: [leftPadding, topPadding],
+    paddingBottomRight: [rightPadding, bottomPadding],
+    maxZoom: 15,
+    animate: true,
+    duration: 0.65
+  });
+  setTimeout(() => { map._isProgrammaticFly = false; }, 750);
 }
 
 // 10. 监听下方卡片横滑
@@ -888,6 +985,9 @@ function setupSliderScrollListener() {
   if (!track) return;
 
   track.addEventListener("scroll", () => {
+    // 横滑移动卡片时先恢复展开态
+    expandCards();
+
     clearTimeout(scrollTimeout);
     scrollTimeout = setTimeout(() => {
       const trackRect = track.getBoundingClientRect();
@@ -909,7 +1009,8 @@ function setupSliderScrollListener() {
       if (closestCard) {
         const spotId = closestCard.dataset.id;
         if (spotId && spotId !== activeSpotId) {
-          selectSpot(spotId, false);
+          // 用户左右移动了卡片，联动地图并保持地图图标正好在卡片上方显示
+          selectSpot(spotId, true);
         }
       }
     }, 150);
@@ -939,7 +1040,7 @@ function slideCards(direction) {
 }
 
 // 11. 过滤与搜索 (集成收藏模式、品类、博主与关键词)
-function applyFilters() {
+function applyFilters(shouldFitBounds = true) {
   const isFavoritesMode = currentBloggerId === "favorites" || currentCategory === "favorites";
 
   filteredSpots = allSpots.filter(spot => {
@@ -970,9 +1071,15 @@ function applyFilters() {
   renderMarkers(filteredSpots);
   updateCounts();
   attachDishesScrollHandlers();
+
+  // 🌟 需求 1A：地图加载或筛选时，自适应视口将筛选出的餐馆全部显示在卡片未遮挡区域 🌟
+  if (shouldFitBounds && filteredSpots.length > 0 && map) {
+    fitBoundsWithCardPadding(filteredSpots);
+  }
 }
 
 function filterCategory(cat) {
+  expandCards();
   if (cat === "favorites") {
     currentCategory = "favorites";
     currentBloggerId = "favorites";
@@ -984,16 +1091,17 @@ function filterCategory(cat) {
   }
   renderCategoryPills();
   renderBloggerPills();
-  applyFilters();
+  applyFilters(true);
 }
 
 // 一键解除收藏模式并恢复全部
 function clearFavoriteFilter() {
+  expandCards();
   currentCategory = "all";
   currentBloggerId = "all";
   renderCategoryPills();
   renderBloggerPills();
-  applyFilters();
+  applyFilters(true);
 }
 
 // 菜品单行左右丝滑滑动监听：支持 PC 鼠标滚轮横移、鼠标拖拽左右滑动、移动端防卡片切换冒泡
@@ -1085,13 +1193,15 @@ function updateScrollHint(container) {
 }
 
 function handleSearch(val) {
+  expandCards();
   searchQuery = val.trim().toLowerCase();
   const clearBtn = document.getElementById("clearSearchBtn");
   if (clearBtn) clearBtn.classList.toggle("hidden", searchQuery.length === 0);
-  applyFilters();
+  applyFilters(true);
 }
 
 function clearSearch() {
+  expandCards();
   const input = document.getElementById("searchInput");
   if (input) input.value = "";
   handleSearch("");
